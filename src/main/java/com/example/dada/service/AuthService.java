@@ -1,6 +1,7 @@
 package com.example.dada.service;
 
 import com.example.dada.dto.*;
+import com.example.dada.enums.UserRole;
 import com.example.dada.exception.InvalidOtpException;
 import com.example.dada.exception.UserAlreadyExistsException;
 import com.example.dada.exception.UserNotEnabledException;
@@ -37,6 +38,16 @@ public class AuthService {
     @Value("${otp.length}")
     private int otpLength;
 
+    /**
+     * Create a new user account in an unverified state and send a one-time password (OTP) to the provided email.
+     *
+     * The account is persisted with an encoded password and marked not enabled/not verified; a numeric OTP is generated
+     * and emailed to the supplied address. If no role is provided in the request, the CUSTOMER role is assigned.
+     *
+     * @param request registration data containing fullName, email, phone, password, and an optional role
+     * @return a MessageResponse confirming registration and instructing the user to check their email for the OTP
+     * @throws UserAlreadyExistsException if an account with the given email already exists
+     */
     @Transactional
     public MessageResponse register(RegisterRequest request) {
         log.info("Attempting to register user with email: {}", request.getEmail());
@@ -48,12 +59,18 @@ public class AuthService {
         String otp = generateOtp();
         LocalDateTime otpExpiry = LocalDateTime.now().plusMinutes(otpExpirationMinutes);
 
+        UserRole role = request.getRole() != null ? request.getRole() : UserRole.CUSTOMER;
+
         User user = User.builder()
+                .fullName(request.getFullName())
                 .email(request.getEmail())
+                .phone(request.getPhone())
+                .role(role)
                 .password(passwordEncoder.encode(request.getPassword()))
                 .otp(otp)
                 .otpExpiry(otpExpiry)
                 .enabled(false)
+                .verified(false)
                 .build();
 
         userRepository.save(user);
@@ -65,6 +82,15 @@ public class AuthService {
         return new MessageResponse("Registration successful. Please check your email for OTP verification.");
     }
 
+    /**
+     * Verify a user's one-time password (OTP), enable and mark the account as verified, clear OTP data,
+     * and return an authentication response containing a JWT.
+     *
+     * @param request the verification request containing the user's email and the submitted OTP
+     * @return an AuthResponse containing a JWT token, the user's email, and a success message
+     * @throws UsernameNotFoundException if no user exists for the provided email
+     * @throws InvalidOtpException if the account is already verified, the OTP is invalid, or the OTP has expired
+     */
     @Transactional
     public AuthResponse verifyOtp(VerifyOtpRequest request) {
         log.info("Attempting to verify OTP for email: {}", request.getEmail());
@@ -85,6 +111,7 @@ public class AuthService {
         }
 
         user.setEnabled(true);
+        user.setVerified(true);
         user.setOtp(null);
         user.setOtpExpiry(null);
         userRepository.save(user);
