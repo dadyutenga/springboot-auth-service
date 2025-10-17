@@ -12,9 +12,11 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.UUID;
 
 @Entity
 @Table(name = "users")
@@ -25,8 +27,8 @@ import java.util.Collections;
 public class User implements UserDetails {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
     @NotBlank(message = "Full name is required")
     @Column(name = "full_name", nullable = false)
@@ -41,8 +43,8 @@ public class User implements UserDetails {
     @Column(nullable = false)
     private String password;
 
-    @Column(name = "phone_number", unique = true)
-    private String phoneNumber;
+    @Column(name = "phone", unique = true)
+    private String phone;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -51,11 +53,19 @@ public class User implements UserDetails {
 
     @Column(nullable = false)
     @Builder.Default
-    private Boolean enabled = false;
+    private Boolean enabled = true;
 
     @Column(nullable = false)
     @Builder.Default
     private Boolean verified = false;
+
+    @Column(precision = 3, scale = 2)
+    @Builder.Default
+    private BigDecimal rating = BigDecimal.ZERO;
+
+    @Column(name = "rating_count")
+    @Builder.Default
+    private Integer ratingCount = 0;
 
     @Column(length = 6)
     private String otp;
@@ -107,7 +117,7 @@ public class User implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return enabled && verified;
+        return Boolean.TRUE.equals(enabled) && Boolean.TRUE.equals(verified);
     }
 
     public boolean isOtpValid() {

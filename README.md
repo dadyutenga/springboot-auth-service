@@ -1,643 +1,181 @@
-# Boda Boda Delivery System
+# Boda Boda Delivery System Backend
 
-A comprehensive Spring Boot 3.x backend system for a motorcycle taxi (Boda Boda) delivery service with role-based access control, JWT authentication, and complete trip management.
+A production-ready Spring Boot 3.x backend for managing a motorcycle delivery marketplace with role-based access, trip lifecycle orchestration, live tracking hooks, reporting, and bi-directional ratings.
 
-[![Java](https://img.shields.io/badge/Java-17-orange.svg)](https://www.oracle.com/java/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.0-brightgreen.svg)](https://spring.io/projects/spring-boot)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Java](https://img.shields.io/badge/Java-17-orange.svg) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.0-brightgreen.svg)
 
 ---
 
-## 🎯 Overview
+## 🚀 Features at a Glance
 
-This system provides a complete backend solution for managing a Boda Boda delivery service with three distinct user roles:
-
-- **CUSTOMER** - Request trips, view history, make payments
-- **RIDER** - Accept trips, complete deliveries, track earnings
-- **ADMIN** - Approve riders, manage users, view system statistics
-
-## ✨ Key Features
-
-### Authentication & Security
-- ✅ JWT-based authentication
-- ✅ Email OTP verification
-- ✅ BCrypt password encryption
-- ✅ Role-based access control with `@PreAuthorize`
-- ✅ Method-level security
-
-### Trip Management
-- ✅ Complete trip lifecycle (REQUESTED → ACCEPTED → IN_PROGRESS → COMPLETED)
-- ✅ Automatic fare calculation
-- ✅ Real-time status tracking
-- ✅ Trip cancellation by customer or rider
-- ✅ GPS coordinates support
-
-### Rider Management
-- ✅ Rider registration with license verification
-- ✅ Admin approval workflow
-- ✅ Earnings tracking (80% fare commission)
-- ✅ Trip history and statistics
-- ✅ Vehicle type management
-
-### Payment System
-- ✅ Mock mobile money integration (M-Pesa, Airtel Money, Tigo Pesa)
-- ✅ Transaction tracking
-- ✅ Async payment processing
-- ✅ Payment status monitoring
-
-### Admin Dashboard
-- ✅ System-wide statistics
-- ✅ User management
-- ✅ Rider approval system
-- ✅ Trip monitoring
-- ✅ Revenue tracking
+| Area | Highlights |
+|------|------------|
+| Authentication | JWT auth, email OTP verification, BCrypt hashing, role-based access (`ADMIN`, `RIDER`, `CUSTOMER`) |
+| Trip Lifecycle | UUID entities, REQUESTED → ACCEPTED → PICKED_UP → IN_TRANSIT → DELIVERED, cancellation rules, rider assignment |
+| Live Tracking | WebSocket (STOMP) endpoint + Redis cache publisher for future real-time dashboards |
+| Reporting | Customer incident reports, admin triage workflow (pending → under review → resolved) |
+| Ratings | One rating per participant per trip, automatic average calculation on `User` and `RiderProfile` |
+| Admin Suite | User activation toggles, rider oversight, global view of trips, reports, and ratings |
+| Tooling | Global CORS, OpenAPI/Swagger docs, PostgreSQL-ready config, Redis integration, mail placeholders |
 
 ---
 
-## 🏗️ Architecture
+## 🧱 Domain Model (all IDs are UUIDs)
 
-### Technology Stack
+- `User` – full name, email, password, phone, role, enabled/verified flags, OTP metadata, aggregated rating
+- `RiderProfile` – one-to-one with `User`, licensing data, vehicle type, status, total earnings, rating, last known location
+- `Trip` – references customer & rider, pickup/dropoff, distance, fare, status progression timestamps
+- `Payment` – one-to-one with trip, amount, method (M-PESA, AIRTEL, TIGO), transaction state, timestamp
+- `Report` – incident reports linked to trip & reporter with triage status
+- `Rating` – reviewer/target references with unique constraint per trip to prevent duplicates
 
-| Component | Technology |
-|-----------|------------|
-| Language | Java 17 |
-| Framework | Spring Boot 3.3.0 |
-| Security | Spring Security + JWT |
-| Database | MySQL 8.0 / PostgreSQL |
-| ORM | Spring Data JPA / Hibernate |
-| Validation | Jakarta Bean Validation |
-| API Docs | Swagger/OpenAPI 3.0 |
-| Build Tool | Maven |
+---
 
-### Project Structure
+## 📡 Delivery Tracking Hooks
+
+- `WebSocketConfig` exposes `/ws/tracking` (SockJS fallback) with `/topic/trips/{tripId}` subscriptions
+- `DeliveryTrackingPublisher` pushes `TripStatusNotification` messages and caches latest status in Redis (`trip-status` hash)
+- Designed for dashboards/mobile apps to consume in near real-time
+
+---
+
+## 🛡️ Security & Access Rules
+
+- `@EnableMethodSecurity` with fine-grained `@PreAuthorize` annotations
+- Customers: create trips, cancel pending trips, submit reports, rate riders
+- Riders: view/accept available trips, update status through delivery stages, rate customers
+- Admins: manage accounts, inspect reports, view system-wide metrics, resolve incidents
+
+---
+
+## 📁 Project Layout
 
 ```
-dada/
-├── src/main/java/com/example/dada/
-│   ├── config/              # Configuration classes
-│   │   ├── SecurityConfig.java
-│   │   ├── CorsConfig.java
-│   │   └── OpenApiConfig.java
-│   ├── controller/          # REST Controllers
-│   │   ├── AuthController.java
-│   │   ├── UserController.java
-│   │   ├── TripController.java
-│   │   ├── RiderController.java
-│   │   ├── AdminController.java
-│   │   └── PaymentController.java
-│   ├── dto/                 # Data Transfer Objects
-│   │   ├── request/
-│   │   └── response/
-│   ├── enums/               # Enumerations
-│   │   ├── UserRole.java
-│   │   ├── TripStatus.java
-│   │   ├── RiderStatus.java
-│   │   ├── VehicleType.java
-│   │   ├── PaymentMethod.java
-│   │   └── PaymentStatus.java
-│   ├── exception/           # Exception Handling
-│   ├── model/               # JPA Entities
-│   │   ├── User.java
-│   │   ├── RiderProfile.java
-│   │   ├── Trip.java
-│   │   └── Payment.java
-│   ├── repository/          # Data Access Layer
-│   ├── security/            # JWT & Security
-│   ├── service/             # Business Logic
-│   │   ├── UserService.java
-│   │   ├── RiderService.java
-│   │   ├── TripService.java
-│   │   ├── PaymentService.java
-│   │   └── AdminService.java
-│   └── util/                # Utilities
-│       └── FareCalculator.java
-└── src/main/resources/
-    ├── application.properties
-    └── ...
+src/main/java/com/example/dada
+├── config/              # Security, OpenAPI, WebSocket, Redis, CORS
+├── controller/          # Auth, User, Trip, Rating, Report, Admin endpoints
+├── dto/                 # DTOs for requests/responses & websocket payloads
+├── enums/               # Roles, payment, trip & report status enums
+├── exception/           # Custom exceptions + global handler
+├── model/               # JPA entities using UUID identifiers
+├── repository/          # Spring Data repositories
+├── security/            # JWT utilities & filter
+├── service/             # Core business services (Auth, Trip, Rating, Report, Admin, etc.)
+└── util/                # Helpers (e.g. fare calculations)
 ```
 
 ---
 
-## 🚀 Quick Start
+## ⚙️ Configuration
 
-### Prerequisites
+Key settings live in `src/main/resources/application.yml` and are environment-variable friendly.
 
-- Java 17 or higher
-- Maven 3.6+
-- MySQL 8.0+ or PostgreSQL 12+
-- Git
+```yaml
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/dada}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+  data:
+    redis:
+      host: ${SPRING_REDIS_HOST:localhost}
+      port: ${SPRING_REDIS_PORT:6379}
+  mail:
+    username: ${SPRING_MAIL_USERNAME:your-email@example.com}
+    password: ${SPRING_MAIL_PASSWORD:change-me}
 
-### Installation
+jwt:
+  secret: ${JWT_SECRET:change-me}
+  expiration: ${JWT_EXPIRATION:86400000}
+```
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd dada/dada
-   ```
-
-2. **Create database**
-   ```sql
-   CREATE DATABASE boda_boda_db;
-   ```
-
-3. **Configure application**
-   
-   Edit `src/main/resources/application.properties`:
-   ```properties
-   # Database
-   spring.datasource.url=jdbc:mysql://localhost:3306/boda_boda_db
-   spring.datasource.username=your_username
-   spring.datasource.password=your_password
-   
-   # JWT
-   jwt.secret=your-secret-key-here
-   jwt.expiration=86400000
-   
-   # Email
-   spring.mail.username=your-email@gmail.com
-   spring.mail.password=your-app-password
-   ```
-
-4. **Build the project**
-   ```bash
-   mvn clean install
-   ```
-
-5. **Run the application**
-   ```bash
-   mvn spring-boot:run
-   ```
-
-6. **Access the application**
-   - API Base URL: `http://localhost:8080`
-   - Swagger UI: `http://localhost:8080/swagger-ui.html`
-   - OpenAPI Spec: `http://localhost:8080/v3/api-docs`
+> **Note:** Update mail and JWT secrets before deploying. Redis is optional but recommended for live tracking.
 
 ---
 
-## 📚 API Documentation
+## 🧪 Example Payloads
 
-### Authentication Endpoints
-
-#### Register User
-```http
-POST /api/auth/register
-Content-Type: application/json
-
-{
-  "email": "john@example.com",
-  "password": "SecurePass123!",
-  "fullName": "John Doe",
-  "phoneNumber": "+255712345678",
-  "role": "CUSTOMER"
-}
-```
-
-#### Verify OTP
-```http
-POST /api/auth/verify-otp
-Content-Type: application/json
-
-{
-  "email": "john@example.com",
-  "otp": "123456"
-}
-```
-
-#### Login
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "email": "john@example.com",
-  "password": "SecurePass123!"
-}
-
-Response:
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "type": "Bearer",
-  "email": "john@example.com",
-  "role": "CUSTOMER"
-}
-```
-
-### Trip Endpoints
-
-#### Create Trip (Customer)
+### Create Trip (Customer)
 ```http
 POST /api/trips
 Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "pickupLocation": "Kariakoo Market",
-  "dropoffLocation": "Mlimani City Mall",
-  "distanceKm": 5.2,
-  "pickupLatitude": -6.8162,
-  "pickupLongitude": 39.2803,
-  "dropoffLatitude": -6.7735,
-  "dropoffLongitude": 39.2475
-}
-
-Response:
-{
-  "id": 1,
-  "fare": 5.40,
-  "status": "REQUESTED",
-  ...
+  "pickupLocation": "Kenyatta Avenue, Nairobi",
+  "dropoffLocation": "Westlands Mall, Nairobi",
+  "distanceKm": 7.5,
+  "fare": 350.00,
+  "pickupLatitude": -1.2833,
+  "pickupLongitude": 36.8167,
+  "dropoffLatitude": -1.2681,
+  "dropoffLongitude": 36.8110
 }
 ```
 
-#### Get Available Trips (Rider)
+### Submit Report (Customer)
 ```http
-GET /api/trips/available
-Authorization: Bearer <rider_token>
-```
-
-#### Accept Trip (Rider)
-```http
-POST /api/trips/1/accept
-Authorization: Bearer <rider_token>
-```
-
-#### Complete Trip (Rider)
-```http
-POST /api/trips/1/complete
-Authorization: Bearer <rider_token>
-```
-
-### Rider Endpoints
-
-#### Register as Rider
-```http
-POST /api/riders/register
+POST /api/report
 Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "licenseNumber": "DL-2024-12345",
-  "nationalId": "NID-1234567890",
-  "vehicleType": "MOTORCYCLE"
+  "tripId": "9b6a7df8-838d-4d57-8c40-3f8f26ae1a6e",
+  "reason": "Damaged parcel",
+  "description": "The package arrived soaked despite clear weather."
 }
 ```
 
-#### View Earnings
+### Rate Counterparty (Customer or Rider)
 ```http
-GET /api/riders/earnings
-Authorization: Bearer <rider_token>
-```
+POST /api/ratings
+Authorization: Bearer <token>
+Content-Type: application/json
 
-### Admin Endpoints
-
-#### Get System Statistics
-```http
-GET /api/admin/stats
-Authorization: Bearer <admin_token>
-
-Response:
 {
-  "totalUsers": 150,
-  "totalCustomers": 100,
-  "totalRiders": 45,
-  "totalTrips": 500,
-  "completedTrips": 450,
-  "pendingTrips": 10,
-  "totalRevenue": 2500.00,
-  "pendingRiderApprovals": 5
+  "tripId": "9b6a7df8-838d-4d57-8c40-3f8f26ae1a6e",
+  "targetUserId": "2f9c3cc5-47fd-49f7-9a7d-109c7796f8e1",
+  "ratingValue": 5,
+  "comment": "Excellent communication and timely delivery."
 }
 ```
 
-#### Approve Rider
-```http
-POST /api/admin/riders/1/approve
-Authorization: Bearer <admin_token>
-```
-
-For complete API documentation, visit the Swagger UI at `http://localhost:8080/swagger-ui.html`
-
 ---
 
-## 💰 Fare Calculation
+## 🛠️ Getting Started
 
-The system uses a transparent fare calculation algorithm:
-
-```
-Base Fare: $1.50
-Rate per KM: $0.75
-Minimum Fare: $2.00
-
-Total Fare = Base Fare + (Distance × Rate per KM)
-```
-
-**Commission Structure:**
-- Rider receives: 80% of fare
-- Platform fee: 20% of fare
-
-**Example:**
-- Distance: 5.2 km
-- Calculated Fare: $1.50 + (5.2 × $0.75) = **$5.40**
-- Rider Earnings: $5.40 × 0.80 = **$4.32**
-- Platform Fee: $5.40 × 0.20 = **$1.08**
-
----
-
-## 🔐 Security
-
-### Authentication Flow
-1. User registers with email, password, and role
-2. System sends OTP to email
-3. User verifies OTP
-4. Account is activated (verified = true)
-5. User logs in and receives JWT token
-6. Token must be included in Authorization header for protected endpoints
-
-### Role-Based Permissions
-
-| Feature | CUSTOMER | RIDER | ADMIN |
-|---------|----------|-------|-------|
-| Register/Login | ✅ | ✅ | ✅ |
-| Create Trip | ✅ | ❌ | ❌ |
-| Accept Trip | ❌ | ✅ | ❌ |
-| Complete Trip | ❌ | ✅ | ❌ |
-| View Earnings | ❌ | ✅ | ❌ |
-| Make Payment | ✅ | ❌ | ❌ |
-| Approve Riders | ❌ | ❌ | ✅ |
-| View Statistics | ❌ | ❌ | ✅ |
-| Manage Users | ❌ | ❌ | ✅ |
-
----
-
-## 🗄️ Database Schema
-
-### Users Table
-```sql
-CREATE TABLE users (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    full_name VARCHAR(255) NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    phone_number VARCHAR(20) UNIQUE,
-    role ENUM('CUSTOMER', 'RIDER', 'ADMIN') NOT NULL,
-    enabled BOOLEAN NOT NULL DEFAULT FALSE,
-    verified BOOLEAN NOT NULL DEFAULT FALSE,
-    otp VARCHAR(6),
-    otp_expiry DATETIME,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
-);
-```
-
-### Rider Profiles Table
-```sql
-CREATE TABLE rider_profiles (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id BIGINT UNIQUE NOT NULL,
-    license_number VARCHAR(50) UNIQUE NOT NULL,
-    national_id VARCHAR(50) UNIQUE NOT NULL,
-    vehicle_type ENUM('MOTORCYCLE', 'BICYCLE', 'SCOOTER', 'TUKTUK'),
-    status ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL,
-    earnings DECIMAL(10,2) DEFAULT 0.00,
-    rating DECIMAL(3,2) DEFAULT 0.00,
-    total_trips INT DEFAULT 0,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-);
-```
-
-### Trips Table
-```sql
-CREATE TABLE trips (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    customer_id BIGINT NOT NULL,
-    rider_id BIGINT,
-    pickup_location VARCHAR(255) NOT NULL,
-    dropoff_location VARCHAR(255) NOT NULL,
-    distance_km DECIMAL(10,2) NOT NULL,
-    fare DECIMAL(10,2) NOT NULL,
-    status ENUM('REQUESTED', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'),
-    pickup_latitude DOUBLE,
-    pickup_longitude DOUBLE,
-    dropoff_latitude DOUBLE,
-    dropoff_longitude DOUBLE,
-    accepted_at DATETIME,
-    completed_at DATETIME,
-    cancelled_at DATETIME,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME,
-    FOREIGN KEY (customer_id) REFERENCES users(id),
-    FOREIGN KEY (rider_id) REFERENCES users(id)
-);
-```
-
-### Payments Table
-```sql
-CREATE TABLE payments (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    trip_id BIGINT UNIQUE NOT NULL,
-    amount DECIMAL(10,2) NOT NULL,
-    method ENUM('M_PESA', 'AIRTEL_MONEY', 'TIGO_PESA', 'CASH'),
-    status ENUM('PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'),
-    transaction_id VARCHAR(50) UNIQUE,
-    phone_number VARCHAR(20),
-    timestamp DATETIME NOT NULL,
-    completed_at DATETIME,
-    FOREIGN KEY (trip_id) REFERENCES trips(id)
-);
-```
-
----
-
-## 🧪 Testing
-
-### Manual Testing Workflow
-
-1. **Register Customer**
+1. **Clone & Build**
    ```bash
-   POST /api/auth/register (role: CUSTOMER)
-   POST /api/auth/verify-otp
-   POST /api/auth/login
+   git clone <repository-url>
+   cd springboot-auth-service
+   ./mvnw clean install
    ```
 
-2. **Register Rider**
+2. **Run the Service**
    ```bash
-   POST /api/auth/register (role: RIDER)
-   POST /api/auth/verify-otp
-   POST /api/auth/login
-   POST /api/riders/register
+   ./mvnw spring-boot:run
    ```
 
-3. **Admin Approves Rider**
-   ```bash
-   POST /api/auth/login (admin)
-   GET /api/admin/riders/pending
-   POST /api/admin/riders/{id}/approve
-   ```
-
-4. **Customer Creates Trip**
-   ```bash
-   POST /api/trips
-   ```
-
-5. **Rider Accepts and Completes Trip**
-   ```bash
-   GET /api/trips/available
-   POST /api/trips/{id}/accept
-   POST /api/trips/{id}/start
-   POST /api/trips/{id}/complete
-   ```
-
-6. **Customer Makes Payment**
-   ```bash
-   POST /api/payments
-   ```
+3. **Explore the API**
+   - Swagger UI: `http://localhost:8080/api/swagger-ui.html`
+   - OpenAPI Spec: `http://localhost:8080/api/docs`
 
 ---
 
-## 📖 Additional Documentation
+## ✅ Test Matrix (suggested)
 
-- **[IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)** - Detailed implementation steps
-- **[API_DOCUMENTATION.md](API_DOCUMENTATION.md)** - Complete API reference
-- **[CODE_REFERENCE.md](CODE_REFERENCE.md)** - All code implementations
-- **[PROJECT_STATUS.md](PROJECT_STATUS.md)** - Current project status
-- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Step-by-step setup instructions
-
----
-
-## 🛠️ Configuration
-
-### Gmail SMTP Setup
-
-1. Enable 2-Step Verification in your Google Account
-2. Generate App Password:
-   - Go to Google Account → Security → App Passwords
-   - Select "Mail" and "Other"
-   - Copy the generated password
-3. Use the app password in `application.properties`
-
-### JWT Secret Key
-
-Generate a secure secret key:
-```bash
-# Linux/Mac
-openssl rand -base64 32
-
-# Or use online generator
-```
+| Command | Purpose |
+|---------|---------|
+| `./mvnw test` | Run unit/integration tests |
+| `./mvnw verify -Pprod` | Production profile build |
+| `docker-compose up` | Optional Postgres/Redis stack |
 
 ---
 
-## 🚢 Deployment
+## 📬 Support & Contributions
 
-### Production Checklist
-
-- [ ] Update CORS to allow specific origins only
-- [ ] Use environment variables for sensitive data
-- [ ] Set up production database
-- [ ] Configure production email service
-- [ ] Enable HTTPS
-- [ ] Set up monitoring and logging
-- [ ] Configure rate limiting
-- [ ] Perform security audit
-- [ ] Set up database backups
-- [ ] Configure CI/CD pipeline
-
-### Environment Variables
-
-```bash
-export DB_URL=jdbc:mysql://prod-db:3306/boda_boda_db
-export DB_USERNAME=prod_user
-export DB_PASSWORD=secure_password
-export JWT_SECRET=your_production_secret
-export MAIL_USERNAME=noreply@yourdomain.com
-export MAIL_PASSWORD=app_password
-```
+Issues and contributions are welcome! Please open a GitHub issue with detailed reproduction steps and expected behaviour.
 
 ---
 
-## 🤝 Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
----
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 👥 Authors
-
-- **Your Name** - *Initial work*
-
----
-
-## 🙏 Acknowledgments
-
-- Spring Boot team for the excellent framework
-- JWT.io for authentication standards
-- All contributors and testers
-
----
-
-## 📞 Support
-
-For issues, questions, or contributions:
-
-- **Issues**: [GitHub Issues](https://github.com/your-repo/issues)
-- **Email**: support@bodaboda.com
-- **Documentation**: See additional markdown files in this directory
-
----
-
-## 🔄 Version History
-
-- **v1.0.0** (2024-01) - Initial release
-  - Complete authentication system
-  - Role-based access control
-  - Trip management
-  - Payment processing
-  - Admin dashboard
-
----
-
-## 🎯 Future Enhancements
-
-- [ ] WebSocket for real-time tracking
-- [ ] Google Maps integration
-- [ ] Push notifications
-- [ ] Real M-Pesa/Airtel Money API integration
-- [ ] Rating and review system
-- [ ] Advanced analytics dashboard
-- [ ] Mobile app (Android/iOS)
-- [ ] Promo codes and discounts
-- [ ] Multi-language support
-- [ ] Driver verification system
-
----
-
-**Built with ❤️ using Spring Boot 3.x**
-
----
-
-## 📊 Quick Stats
-
-- **Lines of Code**: ~5,000+
-- **API Endpoints**: 25+
-- **Database Tables**: 4
-- **Supported Roles**: 3
-- **Payment Methods**: 4
-- **Trip Statuses**: 5
-
----
-
-For more information, see the comprehensive documentation files included in this project.
+© 2024 Boda Boda Delivery System. All rights reserved.
