@@ -46,6 +46,11 @@ public class Report {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    /**
+     * Sets the entity's createdAt timestamp to the current date and time before it is persisted.
+     *
+     * This method is invoked by the JPA lifecycle prior to inserting the entity.
+     */
     @PrePersist
     void onCreate() {
         this.createdAt = LocalDateTime.now();

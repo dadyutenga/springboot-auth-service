@@ -10,5 +10,11 @@ import java.util.UUID;
 
 @Repository
 public interface ReportRepository extends JpaRepository<Report, UUID> {
-    List<Report> findByStatus(ReportStatus status);
+    /**
+ * Retrieve all reports with the specified status.
+ *
+ * @param status the ReportStatus to filter reports by
+ * @return a list of Report entities that have the given status
+ */
+List<Report> findByStatus(ReportStatus status);
 }

@@ -115,11 +115,21 @@ public class User implements UserDetails {
         return true;
     }
 
+    /**
+     * Indicates whether the user account is active and verified.
+     *
+     * @return `true` if both the user's enabled flag and verified flag are true, `false` otherwise.
+     */
     @Override
     public boolean isEnabled() {
         return Boolean.TRUE.equals(enabled) && Boolean.TRUE.equals(verified);
     }
 
+    /**
+     * Checks whether the stored one-time password (OTP) is currently valid.
+     *
+     * @return `true` if an OTP exists, an expiry is set, and the current time is before the expiry; `false` otherwise.
+     */
     public boolean isOtpValid() {
         return otp != null && otpExpiry != null && LocalDateTime.now().isBefore(otpExpiry);
     }
