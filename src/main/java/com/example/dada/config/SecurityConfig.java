@@ -28,6 +28,16 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final UserDetailsService userDetailsService;
 
+    /**
+     * Configure and build the application's HTTP security filter chain with JWT support.
+     *
+     * Configures CSRF disabled, CORS enabled, stateless session management, a DAO authentication provider
+     * with BCrypt password encoding, and inserts the JWT authentication filter before the username/password filter.
+     * Permits unauthenticated access to API docs, Swagger, authentication endpoints, health check, and websocket endpoints;
+     * requires authentication for all other requests.
+     *
+     * @return the configured SecurityFilterChain enforcing the described security rules
+     */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http

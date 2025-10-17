@@ -21,12 +21,23 @@ public class RatingController {
     private final RatingService ratingService;
     private final UserService userService;
 
+    /**
+     * Accepts a rating submission and returns the created rating.
+     *
+     * @param request the rating payload to submit
+     * @return a ResponseEntity whose body is the created RatingResponseDto
+     */
     @PostMapping
     @PreAuthorize("hasAnyRole('CUSTOMER','RIDER')")
     public ResponseEntity<RatingResponseDto> submitRating(@Valid @RequestBody RatingRequestDto request) {
         return ResponseEntity.ok(ratingService.submitRating(request));
     }
 
+    /**
+     * Retrieve ratings associated with the currently authenticated user.
+     *
+     * @return a ResponseEntity containing a list of RatingResponseDto objects for the authenticated user
+     */
     @GetMapping("/me")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<RatingResponseDto>> getMyRatings() {

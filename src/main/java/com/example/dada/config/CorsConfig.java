@@ -22,6 +22,15 @@ public class CorsConfig {
     @Value("${cors.allowed-headers:*}")
     private String allowedHeaders;
 
+    /**
+     * Provide a CorsConfigurationSource configured with allowed origin patterns, methods,
+     * headers, credentials support, and exposed headers.
+     *
+     * The allowed origins, methods, and headers are taken from this class's injected properties
+     * (comma-separated strings) and applied to all request paths.
+     *
+     * @return the configured CorsConfigurationSource applied to all paths (/**)
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();

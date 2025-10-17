@@ -17,6 +17,12 @@ public class UserService {
     
     private final UserRepository userRepository;
     
+    /**
+     * Retrieve the currently authenticated user by the security context's principal email.
+     *
+     * @return the User that matches the authenticated principal's email
+     * @throws ResourceNotFoundException if no user exists for the authenticated email
+     */
     public User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String email = authentication.getName();
@@ -24,11 +30,22 @@ public class UserService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
     
+    /**
+     * Retrieve the authenticated user's profile as a UserDto.
+     *
+     * @return the authenticated user's profile populated as a {@link com.example.dada.dto.UserDto}
+     */
     public UserDto getUserProfile() {
         User user = getCurrentUser();
         return mapToDto(user);
     }
 
+    /**
+     * Update the authenticated user's profile with values from the given request.
+     *
+     * @param request profile updates; `fullName` replaces the user's full name and `phone` replaces the user's phone only if non-null
+     * @return the updated UserDto reflecting the persisted user data
+     */
     @Transactional
     public UserDto updateProfile(UpdateProfileRequest request) {
         User user = getCurrentUser();
@@ -40,6 +57,12 @@ public class UserService {
         return mapToDto(user);
     }
 
+    /**
+     * Convert a User entity to a UserDto.
+     *
+     * @param user the source User entity to map
+     * @return a UserDto containing id, fullName, email, phone, role, enabled, verified, rating, createdAt, and updatedAt
+     */
     public UserDto mapToDto(User user) {
         return UserDto.builder()
                 .id(user.getId())
