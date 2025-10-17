@@ -51,6 +51,21 @@ public class TripService {
     @Transactional
     public TripResponseDto createTrip(TripRequestDto request) {
         User customer = requireRole(UserRole.CUSTOMER);
+        return createTripForUser(customer, request);
+    }
+
+    /**
+     * Create a new trip request for the provided customer without relying on the security context.
+     *
+     * @param customer the customer initiating the trip request; must have the CUSTOMER role
+     * @param request  trip details including pickup, dropoff, distance, and fare metadata
+     * @return the persisted trip mapped to a response DTO
+     */
+    @Transactional
+    public TripResponseDto createTripForUser(User customer, TripRequestDto request) {
+        if (customer.getRole() != UserRole.CUSTOMER) {
+            throw new BadRequestException("Operation allowed only for CUSTOMER role");
+        }
 
         Trip trip = Trip.builder()
                 .customer(customer)
@@ -82,6 +97,21 @@ public class TripService {
     @Transactional
     public TripResponseDto acceptTrip(UUID tripId) {
         User rider = requireRole(UserRole.RIDER);
+        return acceptTripForUser(tripId, rider);
+    }
+
+    /**
+     * Assign a rider to the specified trip without relying on the security context.
+     *
+     * @param tripId the identifier of the trip to accept
+     * @param rider  the rider accepting the trip; must have the RIDER role
+     * @return the updated trip mapped to a response DTO
+     */
+    @Transactional
+    public TripResponseDto acceptTripForUser(UUID tripId, User rider) {
+        if (rider.getRole() != UserRole.RIDER) {
+            throw new BadRequestException("Operation allowed only for RIDER role");
+        }
         Trip trip = getTrip(tripId);
 
         if (trip.getStatus() != TripStatus.REQUESTED) {
@@ -111,8 +141,21 @@ public class TripService {
      */
     @Transactional
     public TripResponseDto updateTripStatus(UUID tripId, TripStatusUpdateDto request) {
-        Trip trip = getTrip(tripId);
         User user = userService.getCurrentUser();
+        return updateTripStatusForUser(tripId, user, request);
+    }
+
+    /**
+     * Progress or cancel a trip on behalf of the supplied user.
+     *
+     * @param tripId  the trip identifier to update
+     * @param user    the actor requesting the change
+     * @param request the desired status update information
+     * @return the persisted trip mapped to a response DTO
+     */
+    @Transactional
+    public TripResponseDto updateTripStatusForUser(UUID tripId, User user, TripStatusUpdateDto request) {
+        Trip trip = getTrip(tripId);
         TripStatus newStatus = request.getStatus();
 
         if (newStatus == TripStatus.CANCELLED) {
@@ -135,12 +178,38 @@ public class TripService {
      * @throws com.example.dada.exception.BadRequestException if the current user is not a participant and not an admin
      */
     public TripResponseDto getTripDetails(UUID tripId) {
-        Trip trip = getTrip(tripId);
         User user = userService.getCurrentUser();
+        return getTripDetailsForUser(tripId, user);
+    }
+
+    /**
+     * Retrieve trip details for a user when invoked outside the security context.
+     *
+     * @param tripId the identifier of the trip
+     * @param user   the user requesting access to the trip
+     * @return the trip mapped to a response DTO
+     */
+    public TripResponseDto getTripDetailsForUser(UUID tripId, User user) {
+        Trip trip = getTrip(tripId);
         if (!isParticipant(user, trip) && user.getRole() != UserRole.ADMIN) {
             throw new BadRequestException("Access denied for this trip");
         }
         return mapToDto(trip);
+    }
+
+    /**
+     * Fetch the Trip entity when the supplied user participates in it.
+     *
+     * @param tripId the trip identifier
+     * @param user   the requesting user
+     * @return the Trip entity if the user is a participant or admin
+     */
+    public Trip getTripForParticipant(UUID tripId, User user) {
+        Trip trip = getTrip(tripId);
+        if (!isParticipant(user, trip) && user.getRole() != UserRole.ADMIN) {
+            throw new BadRequestException("Access denied for this trip");
+        }
+        return trip;
     }
 
     /**

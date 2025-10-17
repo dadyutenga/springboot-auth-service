@@ -47,6 +47,18 @@ public class RatingService {
     @Transactional
     public RatingResponseDto submitRating(RatingRequestDto request) {
         User reviewer = userService.getCurrentUser();
+        return submitRatingForUser(reviewer, request);
+    }
+
+    /**
+     * Submit a rating on behalf of the supplied reviewer outside of the security context.
+     *
+     * @param reviewer the user submitting the rating
+     * @param request  rating details containing the trip id, target user id and score
+     * @return the persisted rating mapped to a response DTO
+     */
+    @Transactional
+    public RatingResponseDto submitRatingForUser(User reviewer, RatingRequestDto request) {
         Trip trip = tripRepository.findById(request.getTripId())
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found"));
 

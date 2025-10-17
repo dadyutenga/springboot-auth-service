@@ -23,4 +23,20 @@ Optional<User> findByEmail(String email);
  * @return `true` if a user with the specified email exists, `false` otherwise
  */
 boolean existsByEmail(String email);
+
+    /**
+     * Finds a user by their phone number.
+     *
+     * @param phone the phone number to search for
+     * @return an Optional containing the matching user when present, empty otherwise
+     */
+    Optional<User> findByPhone(String phone);
+
+    /**
+     * Indicates whether a user already exists with the provided phone number.
+     *
+     * @param phone the phone number to check
+     * @return {@code true} when the phone number is registered, {@code false} otherwise
+     */
+    boolean existsByPhone(String phone);
 }

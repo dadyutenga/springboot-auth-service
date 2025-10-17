@@ -72,6 +72,19 @@ public class RiderService {
      */
     public RiderDto getRiderProfile() {
         User user = requireRiderUser();
+        return getRiderProfileForUser(user);
+    }
+
+    /**
+     * Retrieve the rider profile for the provided user without relying on the security context.
+     *
+     * @param user the rider whose profile should be returned
+     * @return the rider profile mapped to a DTO
+     */
+    public RiderDto getRiderProfileForUser(User user) {
+        if (user.getRole() != UserRole.RIDER) {
+            throw new BadRequestException("User must have RIDER role");
+        }
         RiderProfile profile = riderProfileRepository.findByUserId(user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Rider profile not found"));
         return mapToDto(profile);
