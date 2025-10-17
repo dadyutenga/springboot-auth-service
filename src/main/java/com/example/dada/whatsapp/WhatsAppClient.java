@@ -8,7 +8,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Lightweight HTTP client that wraps calls to the WhatsApp Cloud API.
@@ -51,37 +55,76 @@ public class WhatsAppClient {
      * @param to      recipient phone number in international format
      * @param message textual body to deliver
      */
-    public void sendTextMessage(String to, String message) {
+    public Mono<Void> sendTextMessage(String to, String message) {
         Map<String, Object> payload = Map.of(
                 "messaging_product", "whatsapp",
                 "to", to,
                 "type", "text",
                 "text", Map.of("body", message)
         );
-        postPayload(payload);
+        return postPayload(payload);
     }
 
-    private void postPayload(Map<String, Object> payload) {
+    private Mono<Void> postPayload(Map<String, Object> payload) {
         if (!configured) {
-            log.info("Skipping WhatsApp API call because credentials are missing. Payload={}", payload);
-            return;
+            log.info("Skipping WhatsApp API call because credentials are missing. PayloadSummary={}", redactPayload(payload));
+            return Mono.empty();
         }
-        try {
-            webClient.post()
-                    .uri(uriBuilder -> uriBuilder
-                            .pathSegment(phoneNumberId, "messages")
-                            .build())
-                    .bodyValue(payload)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .doOnNext(body -> log.debug("WhatsApp API response: {}", body))
-                    .onErrorResume(ex -> {
-                        log.error("Failed to send WhatsApp message", ex);
-                        return Mono.empty();
-                    })
-                    .block();
-        } catch (Exception ex) {
-            log.error("Unexpected error when calling WhatsApp API", ex);
+        return webClient.post()
+                .uri(uriBuilder -> uriBuilder
+                        .pathSegment(phoneNumberId, "messages")
+                        .build())
+                .bodyValue(payload)
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(Duration.ofSeconds(10))
+                .doOnNext(body -> log.debug("WhatsApp API response: {}", body))
+                .doOnError(ex -> log.error("Failed to send WhatsApp message", ex))
+                .then();
+    }
+
+    private Map<String, Object> redactPayload(Map<String, Object> payload) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("type", payload.get("type"));
+        summary.put("to", maskPhoneNumber(Objects.toString(payload.get("to"), "")));
+
+        String messageBody = extractMessageBody(payload);
+        if (messageBody != null) {
+            summary.put("messagePreview", truncateMessage(messageBody));
         }
+        return Collections.unmodifiableMap(summary);
+    }
+
+    private String maskPhoneNumber(String to) {
+        if (to == null || to.isBlank()) {
+            return "";
+        }
+        String trimmed = to.trim();
+        if (trimmed.length() <= 4) {
+            return trimmed;
+        }
+        String lastFour = trimmed.substring(trimmed.length() - 4);
+        return "*".repeat(trimmed.length() - 4) + lastFour;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractMessageBody(Map<String, Object> payload) {
+        Object text = payload.get("text");
+        if (text instanceof Map<?, ?> textMap) {
+            Object body = textMap.get("body");
+            if (body != null) {
+                String value = body.toString();
+                return value.isBlank() ? null : value;
+            }
+        }
+        return null;
+    }
+
+    private String truncateMessage(String message) {
+        int maxLength = 100;
+        if (message.length() <= maxLength) {
+            return message;
+        }
+        return message.substring(0, maxLength) + "...";
     }
 }
