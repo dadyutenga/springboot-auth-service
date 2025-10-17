@@ -26,13 +26,19 @@ import com.example.dada.whatsapp.MessageParser.ParsedCommand;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+
+import reactor.core.publisher.Mono;
 
 /**
  * Orchestrates WhatsApp conversations and bridges them to domain services.
@@ -45,6 +51,11 @@ public class WhatsAppService {
     private static final BigDecimal BASE_FARE = BigDecimal.valueOf(150);
     private static final BigDecimal PER_KM_RATE = BigDecimal.valueOf(65);
     private static final BigDecimal DEFAULT_DISTANCE_KM = BigDecimal.valueOf(5);
+    private static final char[] BASE62_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".toCharArray();
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final int MIN_TEMP_TOKEN_LENGTH = 12;
+    private static final int MAX_TEMP_TOKEN_LENGTH = 16;
+    private static final Duration TEMP_TOKEN_TTL = Duration.ofMinutes(10);
 
     private final MessageParser messageParser;
     private final WhatsAppClient whatsAppClient;
@@ -54,6 +65,7 @@ public class WhatsAppService {
     private final RiderService riderService;
     private final RatingService ratingService;
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     private final Map<String, ConversationState> conversations = new ConcurrentHashMap<>();
 
@@ -87,7 +99,7 @@ public class WhatsAppService {
         ConversationState state = conversations.computeIfAbsent(phone, key -> ConversationState.idle());
 
         if (body == null || body.isBlank()) {
-            whatsAppClient.sendTextMessage(phone, "Sorry, I didn't catch that. Type 'help' for available commands.");
+            sendMessage(phone, "Sorry, I didn't catch that. Type 'help' for available commands.");
             return;
         }
 
@@ -110,26 +122,33 @@ public class WhatsAppService {
             case RATE_TRIP -> handleRating(phone, command);
             case EARNINGS_SUMMARY -> handleEarningsSummary(phone);
             case HELP -> sendHelpMessage(phone);
-            default -> whatsAppClient.sendTextMessage(phone, "I'm not sure how to help with that. Type 'help' for guidance.");
+            default -> sendMessage(phone, "I'm not sure how to help with that. Type 'help' for guidance.");
         }
+    }
+
+    private void sendMessage(String phone, String message) {
+        whatsAppClient.sendTextMessage(phone, message)
+                .doOnError(ex -> log.error("Failed to deliver WhatsApp message to {}", phone, ex))
+                .onErrorResume(ex -> Mono.empty())
+                .subscribe();
     }
 
     private boolean handleConversationState(String phone, String body, ConversationState state) {
         return switch (state.getStage()) {
             case AWAITING_EMAIL -> {
                 if (!body.contains("@")) {
-                    whatsAppClient.sendTextMessage(phone, "Please share a valid email address to continue registration.");
+                    sendMessage(phone, "Please share a valid email address to continue registration.");
                     yield true;
                 }
                 state.setPendingEmail(body.trim());
                 state.setStage(ConversationState.Stage.AWAITING_NAME);
-                whatsAppClient.sendTextMessage(phone, "Great! What's your full name?");
+                sendMessage(phone, "Great! What's your full name?");
                 yield true;
             }
             case AWAITING_NAME -> {
                 state.setPendingFullName(body.trim());
                 state.setStage(ConversationState.Stage.AWAITING_ROLE);
-                whatsAppClient.sendTextMessage(phone, "Are you registering as a customer or rider?");
+                sendMessage(phone, "Are you registering as a customer or rider?");
                 yield true;
             }
             case AWAITING_ROLE -> {
@@ -141,7 +160,7 @@ public class WhatsAppService {
                 if (command.getType() == CommandType.OTP) {
                     handleOtp(phone, state, command);
                 } else {
-                    whatsAppClient.sendTextMessage(phone, "Please send your OTP using 'otp 123456'.");
+                    sendMessage(phone, "Please send your OTP using 'otp 123456'.");
                 }
                 yield true;
             }
@@ -152,7 +171,7 @@ public class WhatsAppService {
                 } else if (command.getType() == CommandType.CANCEL) {
                     handleCancellation(phone, state);
                 } else {
-                    whatsAppClient.sendTextMessage(phone, "Reply with 'confirm' to book or 'cancel' to abort.");
+                    sendMessage(phone, "Reply with 'confirm' to book or 'cancel' to abort.");
                 }
                 yield true;
             }
@@ -163,13 +182,13 @@ public class WhatsAppService {
     private void startRegistration(String phone, ConversationState state) {
         Optional<User> existing = userRepository.findByPhone(phone);
         if (existing.isPresent()) {
-            whatsAppClient.sendTextMessage(phone, "You're already registered. You can request a ride anytime!");
+            sendMessage(phone, "You're already registered. You can request a ride anytime!");
             state.reset();
             return;
         }
         state.reset();
         state.setStage(ConversationState.Stage.AWAITING_EMAIL);
-        whatsAppClient.sendTextMessage(phone, "Welcome to DaDa Express! Please share your email address to begin registration.");
+        sendMessage(phone, "Welcome to DaDa Express! Please share your email address to begin registration.");
     }
 
     private void handleRoleSelection(String phone, ConversationState state, String body) {
@@ -179,12 +198,13 @@ public class WhatsAppService {
         } else if (normalized.contains("customer") || normalized.contains("deliver")) {
             state.setPendingRole(UserRole.CUSTOMER);
         } else {
-            whatsAppClient.sendTextMessage(phone, "Please reply with either 'customer' or 'rider'.");
+            sendMessage(phone, "Please reply with either 'customer' or 'rider'.");
             return;
         }
 
-        String tempPassword = generateTemporaryPassword();
-        state.setTemporaryPassword(tempPassword);
+        GeneratedCredential credential = generateTemporaryCredential();
+        state.setTemporaryCredential(credential.storedCredential());
+        String tempPassword = credential.rawToken();
 
         RegisterRequest request = new RegisterRequest(
                 state.getPendingFullName(),
@@ -196,31 +216,47 @@ public class WhatsAppService {
 
         try {
             MessageResponse response = authService.register(request);
-            whatsAppClient.sendTextMessage(phone, response.getMessage() + " Use password: " + tempPassword + " to access the app.");
-            whatsAppClient.sendTextMessage(phone, "Please enter the OTP sent to " + state.getPendingEmail() + " using 'otp 123456'.");
+            sendMessage(phone, response.getMessage() + " Use password: " + tempPassword + " to access the app.");
+            sendMessage(phone, "Please enter the OTP sent to " + state.getPendingEmail() + " using 'otp 123456'.");
             state.setStage(ConversationState.Stage.AWAITING_OTP);
         } catch (UserAlreadyExistsException ex) {
-            whatsAppClient.sendTextMessage(phone, "This email is already registered. Try logging in via the app.");
+            sendMessage(phone, "This email is already registered. Try logging in via the app.");
             state.reset();
         } catch (Exception ex) {
             log.error("Failed to register WhatsApp user", ex);
-            whatsAppClient.sendTextMessage(phone, "We couldn't complete your registration. Please try again later.");
+            sendMessage(phone, "We couldn't complete your registration. Please try again later.");
             state.reset();
         }
     }
 
     private void handleOtp(String phone, ConversationState state, ParsedCommand command) {
         if (state.getPendingEmail() == null) {
-            whatsAppClient.sendTextMessage(phone, "Start registration by sending 'register'.");
+            sendMessage(phone, "Start registration by sending 'register'.");
             return;
         }
-        String otp = command.getParam("otp");
+        ConversationState.TemporaryCredential credential = state.getTemporaryCredential();
+        if (credential != null && credential.isUsed()) {
+            sendMessage(phone, "Your temporary access code has already been used. Please restart registration.");
+            state.reset();
+            return;
+        }
+
+        if (credential != null && credential.isExpired()) {
+            sendMessage(phone, "Your temporary access code has expired. Please restart registration.");
+            state.reset();
+            return;
+        }
+
+        String otp = command.getParam(ParamKey.OTP.name());
         try {
             authService.verifyOtp(new VerifyOtpRequest(state.getPendingEmail(), otp));
-            whatsAppClient.sendTextMessage(phone, "Registration complete! You can now request rides via WhatsApp.");
+            sendMessage(phone, "Registration complete! You can now request rides via WhatsApp.");
         } catch (Exception ex) {
-            whatsAppClient.sendTextMessage(phone, "We couldn't verify that OTP. Please ensure it's correct and try again.");
+            sendMessage(phone, "We couldn't verify that OTP. Please ensure it's correct and try again.");
             return;
+        }
+        if (credential != null) {
+            credential.setUsed(true);
         }
         state.reset();
     }
@@ -228,17 +264,24 @@ public class WhatsAppService {
     private void handleRideRequest(String phone, ConversationState state, ParsedCommand command) {
         Optional<User> userOptional = userRepository.findByPhone(phone);
         if (userOptional.isEmpty()) {
-            whatsAppClient.sendTextMessage(phone, "Please register first by sending 'register'.");
+            sendMessage(phone, "Please register first by sending 'register'.");
             return;
         }
         User user = userOptional.get();
         if (user.getRole() != UserRole.CUSTOMER) {
-            whatsAppClient.sendTextMessage(phone, "Only customers can request deliveries. Riders can type 'earnings' to view their summary.");
+            sendMessage(phone, "Only customers can request deliveries. Riders can type 'earnings' to view their summary.");
             return;
         }
 
-        String pickup = command.getParam(ParamKey.PICKUP.name());
-        String dropoff = command.getParam(ParamKey.DROPOFF.name());
+        String pickupRaw = command.getParam(ParamKey.PICKUP.name());
+        String dropoffRaw = command.getParam(ParamKey.DROPOFF.name());
+        String pickup = pickupRaw == null ? null : pickupRaw.trim();
+        String dropoff = dropoffRaw == null ? null : dropoffRaw.trim();
+        if (pickup == null || pickup.isEmpty() || dropoff == null || dropoff.isEmpty()) {
+            sendMessage(phone, "Please provide both pickup and dropoff locations using 'ride from <pickup> to <dropoff>'.");
+            return;
+        }
+
         BigDecimal distance = estimateDistance(pickup, dropoff);
         BigDecimal fare = estimateFare(distance);
 
@@ -249,7 +292,7 @@ public class WhatsAppService {
         state.setPendingFare(fare);
         state.setStage(ConversationState.Stage.AWAITING_RIDE_CONFIRMATION);
 
-        whatsAppClient.sendTextMessage(phone, String.format(
+        sendMessage(phone, String.format(
                 "Trip estimate from %s to %s is KES %s (~%s km). Reply 'confirm' to book or 'cancel' to abort.",
                 pickup,
                 dropoff,
@@ -260,12 +303,12 @@ public class WhatsAppService {
 
     private void handleRideConfirmation(String phone, ConversationState state) {
         if (state.getStage() != ConversationState.Stage.AWAITING_RIDE_CONFIRMATION) {
-            whatsAppClient.sendTextMessage(phone, "No trip pending confirmation. Send 'ride from <pickup> to <dropoff>'.");
+            sendMessage(phone, "No trip pending confirmation. Send 'ride from <pickup> to <dropoff>'.");
             return;
         }
         Optional<User> userOptional = userRepository.findByPhone(phone);
         if (userOptional.isEmpty()) {
-            whatsAppClient.sendTextMessage(phone, "Please register first by sending 'register'.");
+            sendMessage(phone, "Please register first by sending 'register'.");
             state.reset();
             return;
         }
@@ -279,141 +322,152 @@ public class WhatsAppService {
         try {
             var response = tripService.createTripForUser(userOptional.get(), request);
             state.reset();
-            whatsAppClient.sendTextMessage(phone, "Trip created! We'll notify you when a rider accepts. Trip ID: " + response.getId());
+            sendMessage(phone, "Trip created! We'll notify you when a rider accepts. Trip ID: " + response.getId());
         } catch (BadRequestException | ResourceNotFoundException ex) {
-            whatsAppClient.sendTextMessage(phone, ex.getMessage());
+            sendMessage(phone, ex.getMessage());
             state.reset();
         } catch (Exception ex) {
             log.error("Failed to create trip from WhatsApp", ex);
-            whatsAppClient.sendTextMessage(phone, "We couldn't create your trip right now. Please try again later.");
+            sendMessage(phone, "We couldn't create your trip right now. Please try again later.");
             state.reset();
         }
     }
 
     private void handleCancellation(String phone, ConversationState state) {
         if (state.getStage() == ConversationState.Stage.AWAITING_RIDE_CONFIRMATION) {
-            whatsAppClient.sendTextMessage(phone, "No worries, your trip request has been cancelled.");
+            sendMessage(phone, "No worries, your trip request has been cancelled.");
             state.reset();
         } else {
-            whatsAppClient.sendTextMessage(phone, "There is no pending action to cancel right now.");
+            sendMessage(phone, "There is no pending action to cancel right now.");
         }
     }
 
     private void handleTripTracking(String phone, ParsedCommand command) {
         Optional<User> optionalUser = userRepository.findByPhone(phone);
         if (optionalUser.isEmpty()) {
-            whatsAppClient.sendTextMessage(phone, "Please register first by sending 'register'.");
+            sendMessage(phone, "Please register first by sending 'register'.");
             return;
         }
-        UUID tripId = parseUuid(command.getParam("tripId"));
+        UUID tripId = parseUuid(command.getParam(ParamKey.TRIP_ID.name()));
         if (tripId == null) {
-            whatsAppClient.sendTextMessage(phone, "Please provide a valid trip ID, e.g. 'track 123e4567-e89b-12d3-a456-426614174000'.");
+            sendMessage(phone, "Please provide a valid trip ID, e.g. 'track 123e4567-e89b-12d3-a456-426614174000'.");
             return;
         }
         try {
             var trip = tripService.getTripDetailsForUser(tripId, optionalUser.get());
-            whatsAppClient.sendTextMessage(phone, String.format(
+            sendMessage(phone, String.format(
                     "Trip %s is currently %s.", trip.getId(), trip.getStatus()));
         } catch (Exception ex) {
-            whatsAppClient.sendTextMessage(phone, "We couldn't find that trip or you don't have access to it.");
+            sendMessage(phone, "We couldn't find that trip or you don't have access to it.");
         }
     }
 
     private void handleReportIssue(String phone, ParsedCommand command) {
         Optional<User> optionalUser = userRepository.findByPhone(phone);
         if (optionalUser.isEmpty()) {
-            whatsAppClient.sendTextMessage(phone, "Please register first by sending 'register'.");
+            sendMessage(phone, "Please register first by sending 'register'.");
             return;
         }
-        UUID tripId = parseUuid(command.getParam("tripId"));
+        UUID tripId = parseUuid(command.getParam(ParamKey.TRIP_ID.name()));
         if (tripId == null) {
-            whatsAppClient.sendTextMessage(phone, "Please include a valid trip ID when reporting an issue.");
+            sendMessage(phone, "Please include a valid trip ID when reporting an issue.");
             return;
         }
         ReportRequestDto request = new ReportRequestDto();
         request.setTripId(tripId);
         request.setReason("WHATSAPP_REPORT");
-        request.setDescription(command.getParam("message"));
+        request.setDescription(command.getParam(ParamKey.MESSAGE.name()));
         try {
             var response = reportService.createReportForUser(optionalUser.get(), request);
-            whatsAppClient.sendTextMessage(phone, "Thanks! We've logged your report and our support team will review it.");
-            notifyAdminOfReport(response.getId(), response.getTripId(), command.getParam("message"));
+            sendMessage(phone, "Thanks! We've logged your report and our support team will review it.");
+            notifyAdminOfReport(response.getId(), response.getTripId(), command.getParam(ParamKey.MESSAGE.name()));
         } catch (Exception ex) {
-            whatsAppClient.sendTextMessage(phone, "We couldn't create your report. Ensure the trip belongs to you and has been completed.");
+            sendMessage(phone, "We couldn't create your report. Ensure the trip belongs to you and has been completed.");
         }
     }
 
     private void handleRiderAcceptance(String phone, ParsedCommand command) {
         Optional<User> optionalUser = userRepository.findByPhone(phone);
         if (optionalUser.isEmpty()) {
-            whatsAppClient.sendTextMessage(phone, "Please register as a rider first by sending 'register'.");
+            sendMessage(phone, "Please register as a rider first by sending 'register'.");
             return;
         }
         User rider = optionalUser.get();
-        UUID tripId = parseUuid(command.getParam("tripId"));
+        UUID tripId = parseUuid(command.getParam(ParamKey.TRIP_ID.name()));
         if (tripId == null) {
-            whatsAppClient.sendTextMessage(phone, "Include the trip id, e.g. 'accept 123e4567-e89b-12d3-a456-426614174000'.");
+            sendMessage(phone, "Include the trip id, e.g. 'accept 123e4567-e89b-12d3-a456-426614174000'.");
             return;
         }
         try {
             tripService.acceptTripForUser(tripId, rider);
-            whatsAppClient.sendTextMessage(phone, "Trip accepted! Remember to update status as you progress.");
+            sendMessage(phone, "Trip accepted! Remember to update status as you progress.");
+        } catch (BadRequestException ex) {
+            sendMessage(phone, ex.getMessage());
+        } catch (ResourceNotFoundException ex) {
+            sendMessage(phone, "We couldn't find that trip or you don't have permission to accept it.");
         } catch (Exception ex) {
-            whatsAppClient.sendTextMessage(phone, "Unable to accept that trip: " + ex.getMessage());
+            log.error("Failed to accept trip {} via WhatsApp", tripId, ex);
+            sendMessage(phone, "Unable to accept that trip right now. Please try again later.");
         }
     }
 
     private void handleRiderRejection(String phone, ParsedCommand command) {
-        UUID tripId = parseUuid(command.getParam("tripId"));
+        UUID tripId = parseUuid(command.getParam(ParamKey.TRIP_ID.name()));
         if (tripId == null) {
-            whatsAppClient.sendTextMessage(phone, "Include the trip id when rejecting, e.g. 'reject <tripId>'.");
+            sendMessage(phone, "Include the trip id when rejecting, e.g. 'reject <tripId>'.");
             return;
         }
-        whatsAppClient.sendTextMessage(phone, "Trip " + tripId + " has been marked as declined. We'll reassign it to another rider.");
+        sendMessage(phone, "Trip " + tripId + " has been marked as declined. We'll reassign it to another rider.");
     }
 
     private void handleStatusUpdate(String phone, ParsedCommand command) {
         Optional<User> optionalUser = userRepository.findByPhone(phone);
         if (optionalUser.isEmpty()) {
-            whatsAppClient.sendTextMessage(phone, "Please register first by sending 'register'.");
+            sendMessage(phone, "Please register first by sending 'register'.");
             return;
         }
-        UUID tripId = parseUuid(command.getParam("tripId"));
+        UUID tripId = parseUuid(command.getParam(ParamKey.TRIP_ID.name()));
         if (tripId == null) {
-            whatsAppClient.sendTextMessage(phone, "Please include a valid trip id when updating status.");
+            sendMessage(phone, "Please include a valid trip id when updating status.");
             return;
         }
-        TripStatus status = mapStatus(command.getParam("status"));
+        TripStatus status = mapStatus(command.getParam(ParamKey.STATUS.name()));
         if (status == null) {
-            whatsAppClient.sendTextMessage(phone, "Unknown status. Use 'picked up', 'in transit', or 'delivered'.");
+            sendMessage(phone, "Unknown status. Use 'picked up', 'in transit', or 'delivered'.");
             return;
         }
         TripStatusUpdateDto updateDto = new TripStatusUpdateDto();
         updateDto.setStatus(status);
         try {
             tripService.updateTripStatusForUser(tripId, optionalUser.get(), updateDto);
-            whatsAppClient.sendTextMessage(phone, "Status updated to " + status + ".");
+            sendMessage(phone, "Status updated to " + status + ".");
+        } catch (BadRequestException ex) {
+            sendMessage(phone, ex.getMessage());
+        } catch (ResourceNotFoundException ex) {
+            sendMessage(phone, "We couldn't find that trip or you don't have access to update it.");
         } catch (Exception ex) {
-            whatsAppClient.sendTextMessage(phone, "Unable to update status: " + ex.getMessage());
+            log.error("Failed to update trip {} status via WhatsApp", tripId, ex);
+            sendMessage(phone, "Unable to update status at this time.");
         }
     }
 
     private void handleRating(String phone, ParsedCommand command) {
         Optional<User> optionalUser = userRepository.findByPhone(phone);
         if (optionalUser.isEmpty()) {
-            whatsAppClient.sendTextMessage(phone, "Please register first by sending 'register'.");
+            sendMessage(phone, "Please register first by sending 'register'.");
             return;
         }
         UUID tripId = parseUuid(command.getParam(ParamKey.TRIP_ID.name()));
         if (tripId == null) {
-            whatsAppClient.sendTextMessage(phone, "Please include a valid trip id when rating.");
+            sendMessage(phone, "Please include a valid trip id when rating.");
             return;
         }
         Integer ratingValue;
         try {
             ratingValue = Integer.parseInt(command.getParam(ParamKey.RATING.name()));
+            ratingValue = Math.max(1, Math.min(5, ratingValue));
         } catch (NumberFormatException ex) {
-            whatsAppClient.sendTextMessage(phone, "Ratings must be a number between 1 and 5.");
+            sendMessage(phone, "Ratings must be a number between 1 and 5.");
             return;
         }
         try {
@@ -421,7 +475,7 @@ public class WhatsAppService {
             UUID targetUserId;
             if (optionalUser.get().getRole() == UserRole.CUSTOMER) {
                 if (trip.getRider() == null) {
-                    whatsAppClient.sendTextMessage(phone, "This trip has no rider assigned yet.");
+                    sendMessage(phone, "This trip has no rider assigned yet.");
                     return;
                 }
                 targetUserId = trip.getRider().getId();
@@ -434,37 +488,43 @@ public class WhatsAppService {
             ratingRequest.setRatingValue(ratingValue);
             ratingRequest.setComment(command.getParam(ParamKey.COMMENT.name()));
             ratingService.submitRatingForUser(optionalUser.get(), ratingRequest);
-            whatsAppClient.sendTextMessage(phone, "Thank you for your feedback!");
+            sendMessage(phone, "Thank you for your feedback!");
+        } catch (BadRequestException ex) {
+            sendMessage(phone, ex.getMessage());
+        } catch (ResourceNotFoundException ex) {
+            sendMessage(phone, "We couldn't find that trip or you don't have access to rate it.");
         } catch (Exception ex) {
-            whatsAppClient.sendTextMessage(phone, "Unable to submit rating: " + ex.getMessage());
+            log.error("Failed to submit rating via WhatsApp for trip {}", tripId, ex);
+            sendMessage(phone, "Unable to submit rating right now. Please try again later.");
         }
     }
 
     private void handleEarningsSummary(String phone) {
         Optional<User> optionalUser = userRepository.findByPhone(phone);
         if (optionalUser.isEmpty()) {
-            whatsAppClient.sendTextMessage(phone, "Please register first by sending 'register'.");
+            sendMessage(phone, "Please register first by sending 'register'.");
             return;
         }
         User user = optionalUser.get();
         if (user.getRole() != UserRole.RIDER) {
-            whatsAppClient.sendTextMessage(phone, "Earnings summary is available for riders only.");
+            sendMessage(phone, "Earnings summary is available for riders only.");
             return;
         }
         try {
             var riderProfile = riderService.getRiderProfileForUser(user);
-            whatsAppClient.sendTextMessage(phone, String.format(
+            sendMessage(phone, String.format(
                     "Earnings summary: %s earnings. Current rating: %s.",
                     riderProfile.getTotalEarnings() == null ? "KES 0" : "KES " + riderProfile.getTotalEarnings(),
                     riderProfile.getRating() == null ? "N/A" : riderProfile.getRating()
             ));
         } catch (Exception ex) {
-            whatsAppClient.sendTextMessage(phone, "Unable to retrieve your rider profile: " + ex.getMessage());
+            log.error("Failed to retrieve rider profile for user {} via WhatsApp", user.getId(), ex);
+            sendMessage(phone, "Unable to retrieve your rider profile right now. Please try again later.");
         }
     }
 
     private void sendHelpMessage(String phone) {
-        whatsAppClient.sendTextMessage(phone, "Commands: 'register', 'ride from <pickup> to <dropoff>', 'track <tripId>', 'report issue <tripId> <message>', 'rate <tripId> <1-5> <comment>'. Riders can use 'accept <tripId>' or 'picked up <tripId>'.");
+        sendMessage(phone, "Commands: 'register', 'ride from <pickup> to <dropoff>', 'track <tripId>', 'report issue <tripId> <message>', 'rate <tripId> <1-5> <comment>'. Riders can use 'accept <tripId>' or 'picked up <tripId>'.");
     }
 
     private void notifyAdminOfReport(UUID reportId, UUID tripId, String message) {
@@ -472,7 +532,7 @@ public class WhatsAppService {
             return;
         }
         String body = String.format("New report %s for trip %s: %s", reportId, tripId, message);
-        whatsAppClient.sendTextMessage(adminNotifyNumber, body);
+        sendMessage(adminNotifyNumber, body);
     }
 
     private BigDecimal estimateDistance(String pickup, String dropoff) {
@@ -516,7 +576,22 @@ public class WhatsAppService {
         return "+" + trimmed;
     }
 
-    private String generateTemporaryPassword() {
-        return UUID.randomUUID().toString().replaceAll("-", "").substring(0, 8);
+    private GeneratedCredential generateTemporaryCredential() {
+        int lengthRange = MAX_TEMP_TOKEN_LENGTH - MIN_TEMP_TOKEN_LENGTH + 1;
+        int length = MIN_TEMP_TOKEN_LENGTH + SECURE_RANDOM.nextInt(lengthRange);
+        StringBuilder tokenBuilder = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            tokenBuilder.append(BASE62_ALPHABET[SECURE_RANDOM.nextInt(BASE62_ALPHABET.length)]);
+        }
+        String rawToken = tokenBuilder.toString();
+        ConversationState.TemporaryCredential storedCredential = new ConversationState.TemporaryCredential(
+                passwordEncoder.encode(rawToken),
+                Instant.now().plus(TEMP_TOKEN_TTL),
+                false
+        );
+        return new GeneratedCredential(rawToken, storedCredential);
+    }
+
+    private record GeneratedCredential(String rawToken, ConversationState.TemporaryCredential storedCredential) {
     }
 }

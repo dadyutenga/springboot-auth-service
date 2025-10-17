@@ -1,6 +1,7 @@
 package com.example.dada.whatsapp;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.util.List;
@@ -59,7 +60,9 @@ public class WhatsAppWebhookRequest {
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Interactive {
+        @JsonProperty("button_reply")
         private ButtonReply buttonReply;
+        @JsonProperty("list_reply")
         private ListReply listReply;
 
         public String extractReply() {

@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -39,7 +40,7 @@ public class ConversationState {
     private String pendingEmail;
     private String pendingFullName;
     private UserRole pendingRole;
-    private String temporaryPassword;
+    private TemporaryCredential temporaryCredential;
 
     private String pendingPickup;
     private String pendingDropoff;
@@ -61,7 +62,7 @@ public class ConversationState {
         pendingEmail = null;
         pendingFullName = null;
         pendingRole = null;
-        temporaryPassword = null;
+        temporaryCredential = null;
         pendingPickup = null;
         pendingDropoff = null;
         pendingDistance = null;
@@ -71,5 +72,18 @@ public class ConversationState {
         pendingRatingTargetId = null;
         pendingRatingValue = null;
         pendingRatingComment = null;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TemporaryCredential {
+        private String hashedValue;
+        private Instant expiresAt;
+        private boolean used;
+
+        public boolean isExpired() {
+            return expiresAt != null && Instant.now().isAfter(expiresAt);
+        }
     }
 }

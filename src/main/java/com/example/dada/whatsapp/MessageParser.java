@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -58,7 +59,7 @@ public class MessageParser {
 
         Matcher matcher = OTP_PATTERN.matcher(text);
         if (matcher.matches()) {
-            return new ParsedCommand(CommandType.OTP, Map.of("otp", matcher.group(1)));
+            return new ParsedCommand(CommandType.OTP, Map.of(ParamKey.OTP.name(), matcher.group(1)));
         }
 
         matcher = RIDE_REQUEST_PATTERN.matcher(text);
@@ -71,32 +72,32 @@ public class MessageParser {
 
         matcher = TRACK_PATTERN.matcher(text);
         if (matcher.matches()) {
-            return new ParsedCommand(CommandType.TRACK_TRIP, Map.of("tripId", matcher.group(1)));
+            return new ParsedCommand(CommandType.TRACK_TRIP, Map.of(ParamKey.TRIP_ID.name(), matcher.group(1)));
         }
 
         matcher = REPORT_PATTERN.matcher(text);
         if (matcher.matches()) {
             return new ParsedCommand(CommandType.REPORT_ISSUE, Map.of(
-                    "tripId", matcher.group(1),
-                    "message", matcher.group(2).trim()
+                    ParamKey.TRIP_ID.name(), matcher.group(1),
+                    ParamKey.MESSAGE.name(), matcher.group(2).trim()
             ));
         }
 
         matcher = ACCEPT_PATTERN.matcher(text);
         if (matcher.matches()) {
-            return new ParsedCommand(CommandType.ACCEPT_TRIP, Map.of("tripId", matcher.group(1)));
+            return new ParsedCommand(CommandType.ACCEPT_TRIP, Map.of(ParamKey.TRIP_ID.name(), matcher.group(1)));
         }
 
         matcher = REJECT_PATTERN.matcher(text);
         if (matcher.matches()) {
-            return new ParsedCommand(CommandType.REJECT_TRIP, Map.of("tripId", matcher.group(1)));
+            return new ParsedCommand(CommandType.REJECT_TRIP, Map.of(ParamKey.TRIP_ID.name(), matcher.group(1)));
         }
 
         matcher = STATUS_PATTERN.matcher(text);
         if (matcher.matches()) {
             return new ParsedCommand(CommandType.UPDATE_TRIP_STATUS, Map.of(
-                    "status", matcher.group(1).toLowerCase(),
-                    "tripId", matcher.group(2)
+                    ParamKey.STATUS.name(), matcher.group(1).toLowerCase(),
+                    ParamKey.TRIP_ID.name(), matcher.group(2)
             ));
         }
 
@@ -138,6 +139,9 @@ public class MessageParser {
         PICKUP,
         DROPOFF,
         TRIP_ID,
+        OTP,
+        MESSAGE,
+        STATUS,
         RATING,
         COMMENT
     }
@@ -149,6 +153,11 @@ public class MessageParser {
 
         ParsedCommand(CommandType type) {
             this(type, Map.of());
+        }
+
+        public ParsedCommand(CommandType type, Map<String, String> params) {
+            this.type = Objects.requireNonNull(type, "type must not be null");
+            this.params = Map.copyOf(params);
         }
 
         public String getParam(String key) {
