@@ -14,6 +14,12 @@ public class OpenApiConfig {
 
     private static final String SECURITY_SCHEME_NAME = "bearerAuth";
 
+    /**
+     * Create the OpenAPI model for the Boda Boda Delivery System with API metadata and JWT bearer security.
+     *
+     * @return the configured OpenAPI instance containing title, description, version, contact information, a security requirement,
+     *         and a HTTP Bearer security scheme named "bearerAuth" that uses the JWT format
+     */
     @Bean
     public OpenAPI bodaBodaOpenApi() {
         return new OpenAPI()

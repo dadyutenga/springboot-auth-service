@@ -21,6 +21,15 @@ public class DeliveryTrackingPublisher {
     private final ObjectProvider<SimpMessagingTemplate> messagingTemplateProvider;
     private final ObjectProvider<StringRedisTemplate> redisTemplateProvider;
 
+    /**
+     * Publish the current status of a trip to WebSocket subscribers and cache the status in Redis when available.
+     *
+     * If a WebSocket messaging template is present, a TripStatusNotification for the given trip is sent to
+     * the destination "/topic/trips/{tripId}". If a Redis template is present, the trip's status name is stored
+     * in the Redis hash key "trip-status" under the trip ID and the key is set to expire after 24 hours.
+     *
+     * @param trip the trip whose status will be published and cached
+     */
     public void publishStatusUpdate(Trip trip) {
         TripStatusNotification notification = new TripStatusNotification(
                 trip.getId(),

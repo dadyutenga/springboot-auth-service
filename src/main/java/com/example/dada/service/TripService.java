@@ -15,7 +15,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.EnumMap;
 import java.util.List;
@@ -41,6 +40,14 @@ public class TripService {
     private final UserService userService;
     private final DeliveryTrackingPublisher trackingPublisher;
 
+    /**
+     * Create a new trip request for the currently authenticated customer.
+     *
+     * <p>Persists a Trip with status set to REQUESTED, publishes a status update, and returns the mapped response.
+     *
+     * @param request DTO containing pickup and dropoff locations, coordinates, distance, and fare for the trip
+     * @return a TripResponseDto representing the saved trip with its initial status and timestamps
+     */
     @Transactional
     public TripResponseDto createTrip(TripRequestDto request) {
         User customer = requireRole(UserRole.CUSTOMER);
@@ -63,6 +70,15 @@ public class TripService {
         return mapToDto(saved);
     }
 
+    /**
+     * Assigns the current rider to the specified trip, updates its status to ACCEPTED,
+     * records the acceptance timestamp, persists the change, and publishes a status update.
+     *
+     * @param tripId the identifier of the trip to accept
+     * @return a TripResponseDto representing the saved trip after acceptance
+     * @throws ResourceNotFoundException if no trip exists with the given id
+     * @throws BadRequestException if the current user is not a rider or the trip is not in REQUESTED status
+     */
     @Transactional
     public TripResponseDto acceptTrip(UUID tripId) {
         User rider = requireRole(UserRole.RIDER);
@@ -80,6 +96,19 @@ public class TripService {
         return mapToDto(saved);
     }
 
+    /**
+     * Updates a trip's status according to the provided request and returns the updated trip representation.
+     *
+     * The method applies cancellation semantics when the requested status is `CANCELLED`; otherwise it advances
+     * the trip through the allowed status progression and may update rider-related metadata. The persisted trip
+     * is published to the tracking publisher and returned as a DTO.
+     *
+     * @param tripId the identifier of the trip to update
+     * @param request the status update request containing the desired `TripStatus` and optional rider location
+     * @return a TripResponseDto reflecting the persisted trip after the status update
+     * @throws ResourceNotFoundException if no trip exists with the given `tripId`
+     * @throws BadRequestException if the update is not permitted (invalid transition, insufficient permissions, or other business rules)
+     */
     @Transactional
     public TripResponseDto updateTripStatus(UUID tripId, TripStatusUpdateDto request) {
         Trip trip = getTrip(tripId);
@@ -97,6 +126,14 @@ public class TripService {
         return mapToDto(saved);
     }
 
+    /**
+     * Retrieve trip details for the specified trip when the caller is either a participant (customer or assigned rider) or an admin.
+     *
+     * @param tripId the UUID of the trip to retrieve
+     * @return a TripResponseDto representing the trip's current state and metadata
+     * @throws com.example.dada.exception.ResourceNotFoundException if no trip exists for the given id
+     * @throws com.example.dada.exception.BadRequestException if the current user is not a participant and not an admin
+     */
     public TripResponseDto getTripDetails(UUID tripId) {
         Trip trip = getTrip(tripId);
         User user = userService.getCurrentUser();
@@ -106,6 +143,14 @@ public class TripService {
         return mapToDto(trip);
     }
 
+    /**
+     * Retrieve all trips belonging to the currently authenticated customer.
+     *
+     * <p>Requires the current user to have the CUSTOMER role.</p>
+     *
+     * @throws BadRequestException if the current user's role is not CUSTOMER
+     * @return a list of TripResponseDto representing the customer's trips
+     */
     public List<TripResponseDto> getCustomerTrips() {
         User customer = requireRole(UserRole.CUSTOMER);
         return tripRepository.findByCustomerId(customer.getId())
@@ -114,6 +159,14 @@ public class TripService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Retrieve all trips assigned to the currently authenticated rider.
+     *
+     * This method requires the current user to have the RIDER role; it fetches trips
+     * where the rider ID matches the authenticated user's ID and maps them to DTOs.
+     *
+     * @return a list of TripResponseDto objects for trips assigned to the current rider
+     */
     public List<TripResponseDto> getRiderTrips() {
         User rider = requireRole(UserRole.RIDER);
         return tripRepository.findByRiderId(rider.getId())
@@ -122,6 +175,11 @@ public class TripService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Retrieves trips that are currently open for pickup by riders.
+     *
+     * @return a list of TripResponseDto objects representing trips with status REQUESTED
+     */
     public List<TripResponseDto> getAvailableTrips() {
         requireRole(UserRole.RIDER);
         return tripRepository.findAvailableTrips(TripStatus.REQUESTED)
@@ -130,6 +188,11 @@ public class TripService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Retrieve all trips in the system as response DTOs.
+     *
+     * @return a list of TripResponseDto objects representing every trip record
+     */
     public List<TripResponseDto> getAllTrips() {
         return tripRepository.findAll()
                 .stream()
@@ -137,11 +200,25 @@ public class TripService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Fetches a Trip by its identifier.
+     *
+     * @param tripId the UUID of the trip to retrieve
+     * @return the Trip with the specified id
+     * @throws ResourceNotFoundException if no trip exists with the given id
+     */
     private Trip getTrip(UUID tripId) {
         return tripRepository.findById(tripId)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found"));
     }
 
+    /**
+     * Cancels the given trip when requested by the trip's owning customer and the trip is still cancellable.
+     *
+     * @param user the user attempting the cancellation
+     * @param trip the trip to cancel
+     * @throws BadRequestException if the user is not the trip's customer or if the trip status is not REQUESTED or ACCEPTED
+     */
     private void handleCancellation(User user, Trip trip) {
         if (user.getRole() != UserRole.CUSTOMER || !trip.getCustomer().getId().equals(user.getId())) {
             throw new BadRequestException("Only the customer can cancel this trip");
@@ -153,6 +230,19 @@ public class TripService {
         trip.setCancelledAt(LocalDateTime.now());
     }
 
+    /**
+     * Advance a trip to the specified next status and apply any related timestamp and rider-profile updates.
+     *
+     * Updates the trip's status (and acceptedAt/completedAt timestamps when applicable), and updates the assigned
+     * rider's profile with an optional last location and, upon delivery, increments trip count and earnings.
+     *
+     * @param user the current user requesting the update
+     * @param trip the trip to update
+     * @param newStatus the desired next trip status; must match the allowed next status for the trip's current status
+     * @param riderLocation optional rider location to persist on the rider profile; may be null
+     * @throws BadRequestException if the trip has no assigned rider, the user is not the assigned rider or an admin,
+     *         the current status cannot progress, or the requested status does not match the expected next status
+     */
     private void handleProgressUpdate(User user, Trip trip, TripStatus newStatus, String riderLocation) {
         if (trip.getRider() == null) {
             throw new BadRequestException("Trip has not been assigned to a rider yet");
@@ -183,22 +273,32 @@ public class TripService {
                         profile.setLastLocation(riderLocation);
                     }
                     if (newStatus == TripStatus.DELIVERED) {
-                        int completedTrips = profile.getTotalTrips() == null ? 0 : profile.getTotalTrips();
-                        profile.setTotalTrips(completedTrips + 1);
-
-                        BigDecimal currentEarnings = profile.getTotalEarnings() == null ? BigDecimal.ZERO : profile.getTotalEarnings();
-                        BigDecimal fare = trip.getFare() == null ? BigDecimal.ZERO : trip.getFare();
-                        profile.setTotalEarnings(currentEarnings.add(fare));
+                        profile.setTotalTrips(profile.getTotalTrips() + 1);
+                        profile.setTotalEarnings(profile.getTotalEarnings().add(trip.getFare()));
                     }
                     riderProfileRepository.save(profile);
                 });
     }
 
+    /**
+     * Checks whether a user is a participant in the given trip.
+     *
+     * @param user the user to check for participation
+     * @param trip the trip to inspect
+     * @return `true` if the user is the trip's customer or the assigned rider, `false` otherwise
+     */
     private boolean isParticipant(User user, Trip trip) {
         return trip.getCustomer().getId().equals(user.getId()) ||
                 (trip.getRider() != null && trip.getRider().getId().equals(user.getId()));
     }
 
+    /**
+     * Ensure the current authenticated user has the specified role.
+     *
+     * @param role the required user role
+     * @return the current authenticated user when their role matches the required role
+     * @throws BadRequestException if the current user's role does not match the required role
+     */
     private User requireRole(UserRole role) {
         User user = userService.getCurrentUser();
         if (user.getRole() != role) {
@@ -207,6 +307,13 @@ public class TripService {
         return user;
     }
 
+    /**
+     * Converts a Trip entity into a TripResponseDto.
+     *
+     * @param trip the Trip entity to map
+     * @return a TripResponseDto containing the trip's id, customer and rider ids (rider id may be null),
+     *         pickup and dropoff locations, distance (km), fare, status, and creation/update timestamps
+     */
     public TripResponseDto mapToDto(Trip trip) {
         return TripResponseDto.builder()
                 .id(trip.getId())

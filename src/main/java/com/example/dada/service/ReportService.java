@@ -26,6 +26,17 @@ public class ReportService {
     private final TripRepository tripRepository;
     private final UserService userService;
 
+    /**
+     * Create a new report for a trip submitted by the trip's customer.
+     *
+     * Validates that the current user is the trip's customer, persists a report with status PENDING,
+     * and returns the saved report as a DTO.
+     *
+     * @param request the report request containing the trip ID, reason, and description
+     * @return a ReportResponseDto representing the saved report
+     * @throws ResourceNotFoundException if no trip exists with the provided ID
+     * @throws BadRequestException if the current user is not the customer for the trip
+     */
     @Transactional
     public ReportResponseDto createReport(ReportRequestDto request) {
         User reporter = userService.getCurrentUser();
@@ -47,6 +58,11 @@ public class ReportService {
         return mapToDto(reportRepository.save(report));
     }
 
+    /**
+     * Retrieve all stored reports and convert them to response DTOs.
+     *
+     * @return a list of ReportResponseDto containing every report in the repository
+     */
     public List<ReportResponseDto> getAllReports() {
         return reportRepository.findAll()
                 .stream()
@@ -54,6 +70,11 @@ public class ReportService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Retrieves all reports currently marked as pending.
+     *
+     * @return a list of ReportResponseDto representing reports with status PENDING
+     */
     public List<ReportResponseDto> getPendingReports() {
         return reportRepository.findByStatus(ReportStatus.PENDING)
                 .stream()
@@ -61,6 +82,12 @@ public class ReportService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Marks the specified report's status as UNDER_REVIEW.
+     *
+     * @param reportId the UUID of the report to update
+     * @return the updated report as a ReportResponseDto with status set to UNDER_REVIEW
+     */
     @Transactional
     public ReportResponseDto markUnderReview(UUID reportId) {
         Report report = getReport(reportId);
@@ -68,6 +95,12 @@ public class ReportService {
         return mapToDto(reportRepository.save(report));
     }
 
+    /**
+     * Mark the specified report as resolved.
+     *
+     * @param reportId the UUID of the report to resolve
+     * @return the updated ReportResponseDto with status set to RESOLVED
+     */
     @Transactional
     public ReportResponseDto resolveReport(UUID reportId) {
         Report report = getReport(reportId);
@@ -75,11 +108,24 @@ public class ReportService {
         return mapToDto(reportRepository.save(report));
     }
 
+    /**
+     * Load the Report with the given id or throw a ResourceNotFoundException if none exists.
+     *
+     * @param reportId the UUID of the report to load
+     * @return the Report with the given id
+     * @throws ResourceNotFoundException if no report exists for the provided id
+     */
     private Report getReport(UUID reportId) {
         return reportRepository.findById(reportId)
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found"));
     }
 
+    /**
+     * Convert a Report entity into a ReportResponseDto.
+     *
+     * @param report the Report entity to convert; its trip and reporter must be non-null
+     * @return a ReportResponseDto containing id, tripId, reporterId, reporterEmail, reason, description, status, and createdAt
+     */
     public ReportResponseDto mapToDto(Report report) {
         return ReportResponseDto.builder()
                 .id(report.getId())

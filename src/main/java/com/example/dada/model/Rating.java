@@ -46,6 +46,9 @@ public class Rating {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    /**
+     * Initializes the entity's creation timestamp to the current date-time before the entity is persisted.
+     */
     @PrePersist
     void onCreate() {
         this.createdAt = LocalDateTime.now();

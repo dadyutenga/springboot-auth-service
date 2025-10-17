@@ -20,12 +20,23 @@ public class UserController {
 
     private final UserService userService;
 
+    /**
+     * Retrieve the authenticated user's profile.
+     *
+     * @return ResponseEntity containing the authenticated user's {@code UserDto} and HTTP 200 status.
+     */
     @GetMapping("/me")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<UserDto> getProfile() {
         return ResponseEntity.ok(userService.getUserProfile());
     }
 
+    /**
+     * Updates the authenticated user's profile using the provided data.
+     *
+     * @param request the validated profile update payload containing fields to change
+     * @return the updated user profile as a UserDto
+     */
     @PutMapping("/me")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<UserDto> updateProfile(@Valid @RequestBody UpdateProfileRequest request) {

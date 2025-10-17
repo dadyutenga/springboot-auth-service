@@ -20,6 +20,13 @@ public class RedisConfig {
     @Value("${spring.data.redis.password:}")
     private String password;
 
+    /**
+     * Create and configure a LettuceConnectionFactory for a standalone Redis instance.
+     *
+     * If a non-blank password was provided via configuration, it will be applied to the Redis configuration.
+     *
+     * @return a LettuceConnectionFactory configured with the configured host, port, and password (if provided)
+     */
     @Bean
     public LettuceConnectionFactory redisConnectionFactory() {
         RedisStandaloneConfiguration config = new RedisStandaloneConfiguration(host, port);
@@ -29,6 +36,11 @@ public class RedisConfig {
         return new LettuceConnectionFactory(config);
     }
 
+    /**
+     * Create a StringRedisTemplate backed by the provided LettuceConnectionFactory.
+     *
+     * @return a StringRedisTemplate configured to use the given connection factory
+     */
     @Bean
     public StringRedisTemplate stringRedisTemplate(LettuceConnectionFactory connectionFactory) {
         return new StringRedisTemplate(connectionFactory);
