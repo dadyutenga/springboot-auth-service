@@ -11,6 +11,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
+
 @Service
 @RequiredArgsConstructor
 public class UserService {
@@ -28,6 +30,16 @@ public class UserService {
         String email = authentication.getName();
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    }
+
+    /**
+     * Retrieve a user by phone number when present.
+     *
+     * @param phone the phone number to search for
+     * @return an Optional containing the matching {@link User}
+     */
+    public Optional<User> findByPhone(String phone) {
+        return userRepository.findByPhone(phone);
     }
     
     /**

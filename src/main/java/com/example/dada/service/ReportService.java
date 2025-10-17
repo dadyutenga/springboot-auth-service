@@ -40,6 +40,18 @@ public class ReportService {
     @Transactional
     public ReportResponseDto createReport(ReportRequestDto request) {
         User reporter = userService.getCurrentUser();
+        return createReportForUser(reporter, request);
+    }
+
+    /**
+     * Create a new report on behalf of the supplied reporter without relying on the security context.
+     *
+     * @param reporter the customer submitting the report
+     * @param request  report details including the trip id, reason and description
+     * @return the persisted report mapped to a response DTO
+     */
+    @Transactional
+    public ReportResponseDto createReportForUser(User reporter, ReportRequestDto request) {
         Trip trip = tripRepository.findById(request.getTripId())
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found"));
 
