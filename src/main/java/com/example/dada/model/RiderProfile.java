@@ -11,6 +11,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "rider_profiles")
@@ -21,8 +22,8 @@ import java.time.LocalDateTime;
 public class RiderProfile {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false, unique = true)
@@ -45,17 +46,24 @@ public class RiderProfile {
     @Builder.Default
     private RiderStatus status = RiderStatus.PENDING;
 
-    @Column(precision = 10, scale = 2)
+    @Column(name = "total_earnings", precision = 10, scale = 2)
     @Builder.Default
-    private BigDecimal earnings = BigDecimal.ZERO;
+    private BigDecimal totalEarnings = BigDecimal.ZERO;
 
     @Column(precision = 3, scale = 2)
     @Builder.Default
     private BigDecimal rating = BigDecimal.ZERO;
 
+    @Column(name = "rating_count")
+    @Builder.Default
+    private Integer ratingCount = 0;
+
     @Column(name = "total_trips")
     @Builder.Default
     private Integer totalTrips = 0;
+
+    @Column(name = "last_location")
+    private String lastLocation;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

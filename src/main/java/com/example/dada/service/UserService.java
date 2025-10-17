@@ -1,7 +1,7 @@
 package com.example.dada.service;
 
+import com.example.dada.dto.UserDto;
 import com.example.dada.dto.request.UpdateProfileRequest;
-import com.example.dada.dto.response.UserProfileResponse;
 import com.example.dada.exception.ResourceNotFoundException;
 import com.example.dada.model.User;
 import com.example.dada.repository.UserRepository;
@@ -24,31 +24,34 @@ public class UserService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
     
-    public UserProfileResponse getUserProfile() {
+    public UserDto getUserProfile() {
         User user = getCurrentUser();
-        return mapToProfileResponse(user);
+        return mapToDto(user);
     }
-    
+
     @Transactional
-    public UserProfileResponse updateProfile(UpdateProfileRequest request) {
+    public UserDto updateProfile(UpdateProfileRequest request) {
         User user = getCurrentUser();
         user.setFullName(request.getFullName());
-        if (request.getPhoneNumber() != null) {
-            user.setPhoneNumber(request.getPhoneNumber());
+        if (request.getPhone() != null) {
+            user.setPhone(request.getPhone());
         }
         user = userRepository.save(user);
-        return mapToProfileResponse(user);
+        return mapToDto(user);
     }
-    
-    private UserProfileResponse mapToProfileResponse(User user) {
-        return UserProfileResponse.builder()
+
+    public UserDto mapToDto(User user) {
+        return UserDto.builder()
                 .id(user.getId())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
-                .phoneNumber(user.getPhoneNumber())
+                .phone(user.getPhone())
                 .role(user.getRole())
+                .enabled(user.getEnabled())
                 .verified(user.getVerified())
+                .rating(user.getRating())
                 .createdAt(user.getCreatedAt())
+                .updatedAt(user.getUpdatedAt())
                 .build();
     }
 }

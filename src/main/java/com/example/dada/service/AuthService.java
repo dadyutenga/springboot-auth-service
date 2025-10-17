@@ -1,6 +1,7 @@
 package com.example.dada.service;
 
 import com.example.dada.dto.*;
+import com.example.dada.enums.UserRole;
 import com.example.dada.exception.InvalidOtpException;
 import com.example.dada.exception.UserAlreadyExistsException;
 import com.example.dada.exception.UserNotEnabledException;
@@ -48,12 +49,18 @@ public class AuthService {
         String otp = generateOtp();
         LocalDateTime otpExpiry = LocalDateTime.now().plusMinutes(otpExpirationMinutes);
 
+        UserRole role = request.getRole() != null ? request.getRole() : UserRole.CUSTOMER;
+
         User user = User.builder()
+                .fullName(request.getFullName())
                 .email(request.getEmail())
+                .phone(request.getPhone())
+                .role(role)
                 .password(passwordEncoder.encode(request.getPassword()))
                 .otp(otp)
                 .otpExpiry(otpExpiry)
                 .enabled(false)
+                .verified(false)
                 .build();
 
         userRepository.save(user);
@@ -85,6 +92,7 @@ public class AuthService {
         }
 
         user.setEnabled(true);
+        user.setVerified(true);
         user.setOtp(null);
         user.setOtpExpiry(null);
         userRepository.save(user);
