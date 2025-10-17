@@ -41,6 +41,12 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
         try {
             String username = jwtUtil.extractUsername(token);
             UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+
+            if (!userDetails.isAccountNonLocked() || !userDetails.isEnabled()) {
+                log.warn("WebSocket handshake rejected: user {} is disabled or locked", username);
+                return false;
+            }
+
             if (jwtUtil.validateToken(token, userDetails)) {
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
