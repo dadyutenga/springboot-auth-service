@@ -9,14 +9,15 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class PaymentResponse {
-    private Long id;
-    private Long tripId;
+    private UUID id;
+    private UUID tripId;
     private BigDecimal amount;
     private PaymentMethod method;
     private PaymentStatus status;

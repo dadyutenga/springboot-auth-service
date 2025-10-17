@@ -7,10 +7,11 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
-public interface RiderProfileRepository extends JpaRepository<RiderProfile, Long> {
-    Optional<RiderProfile> findByUserId(Long userId);
+public interface RiderProfileRepository extends JpaRepository<RiderProfile, UUID> {
+    Optional<RiderProfile> findByUserId(UUID userId);
     List<RiderProfile> findByStatus(RiderStatus status);
     Optional<RiderProfile> findByLicenseNumber(String licenseNumber);
     Optional<RiderProfile> findByNationalId(String nationalId);

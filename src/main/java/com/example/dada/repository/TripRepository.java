@@ -8,16 +8,20 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 @Repository
-public interface TripRepository extends JpaRepository<Trip, Long> {
-    List<Trip> findByCustomerId(Long customerId);
-    List<Trip> findByRiderId(Long riderId);
+public interface TripRepository extends JpaRepository<Trip, UUID> {
+    List<Trip> findByCustomerId(UUID customerId);
+    List<Trip> findByRiderId(UUID riderId);
     List<Trip> findByStatus(TripStatus status);
-    
+
     @Query("SELECT t FROM Trip t WHERE t.status = :status AND t.rider IS NULL")
     List<Trip> findAvailableTrips(@Param("status") TripStatus status);
-    
+
     @Query("SELECT t FROM Trip t WHERE t.rider.id = :riderId AND t.status IN :statuses")
-    List<Trip> findByRiderIdAndStatusIn(@Param("riderId") Long riderId, @Param("statuses") List<TripStatus> statuses);
+    List<Trip> findByRiderIdAndStatusIn(@Param("riderId") UUID riderId, @Param("statuses") List<TripStatus> statuses);
+
+    Optional<Trip> findByIdAndCustomerId(UUID id, UUID customerId);
 }

@@ -1,0 +1,12 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+cors:
+  allowed-origins: https://app.example.com,https://admin.example.com
+
+logging:
+  level:
+    com.example.dada: INFO

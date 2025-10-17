@@ -4,14 +4,16 @@ import com.example.dada.enums.PaymentMethod;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.util.UUID;
+
 @Data
 public class PaymentRequest {
     @NotNull(message = "Trip ID is required")
-    private Long tripId;
-    
+    private UUID tripId;
+
     @NotNull(message = "Payment method is required")
     private PaymentMethod method;
-    
+
     @NotNull(message = "Phone number is required for mobile payment")
     private String phoneNumber;
 }
