@@ -178,4 +178,4 @@ Issues and contributions are welcome! Please open a GitHub issue with detailed r
 
 ---
 
-© 2024 Boda Boda Delivery System. All rights reserved.
+© 2025 Boda Boda Delivery System. All rights reserved.
